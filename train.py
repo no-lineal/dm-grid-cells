@@ -230,8 +230,8 @@ def train():
                     latest_epoch_scorer, res['pos_xy'], res['bottleneck'],
                     FLAGS.saver_results_directory, filename)
         
-        np.save( 'res_' + str( epoch ) + '.npy', res )
-        np.save( 'scores_' + str( epoch ) + '.npy', grid_scores )
+        np.save( FLAGS.saver_results_directory + 'res_' + str( epoch ) + '.npy', res )
+        np.save( FLAGS.saver_results_directory + 'scores_' + str( epoch ) + '.npy', grid_scores )
 
 
 def main(unused_argv):
