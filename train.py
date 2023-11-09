@@ -203,6 +203,7 @@ def train():
 
   with tf.train.SingularMonitoredSession() as sess:
     for epoch in range(FLAGS.training_epochs):
+      
       loss_acc = list()
       for _ in range(FLAGS.training_steps_per_epoch):
         res = sess.run({'train_op': train_op, 'total_loss': train_loss})
@@ -228,6 +229,9 @@ def train():
                 'btln_90_separation'] = utils.get_scores_and_plot(
                     latest_epoch_scorer, res['pos_xy'], res['bottleneck'],
                     FLAGS.saver_results_directory, filename)
+        
+        np.save( 'res_' + str( epoch ) + '.npy', res )
+        np.save( 'scores_' + str( epoch ) + '.npy', grid_scores )
 
 
 def main(unused_argv):
