@@ -80,7 +80,7 @@ class GridScorer(object):
         range=self._coords_range)[0]
 
   def _get_ring_mask(self, mask_min, mask_max):
-    n_points = [self._nbins * 2 - 1, self._nbins * 2 - 1]
+    n_points = [self._nbins * 2 - 1, self._nbins * 2 - 1] # why do we increase by 
     return (circle_mask(n_points, mask_max * self._nbins) *
             (1 - circle_mask(n_points, mask_min * self._nbins)))
 

@@ -61,8 +61,8 @@ tf.flags.DEFINE_list('task_velocity_noise', [0.0, 0.0, 0.0],
 
 # Model config
 tf.flags.DEFINE_integer('model_nh_lstm', 128, 'Number of hidden units in LSTM.')
-tf.flags.DEFINE_integer('model_nh_bottleneck', 256,
-                        'Number of hidden units in linear bottleneck.')
+tf.flags.DEFINE_integer('model_nh_bottleneck', 512,
+                        'Number of hidden units in linear bottleneck.') ## increased from 256 to 512
 tf.flags.DEFINE_list('model_dropout_rates', [0.5],
                      'List of floats with dropout rates.')
 tf.flags.DEFINE_float('model_weight_decay', 1e-5,
@@ -95,7 +95,7 @@ tf.flags.DEFINE_string('training_optimizer_options',
 tf.flags.DEFINE_string('saver_results_directory',
                        None,
                        'Path to directory for saving results.')
-tf.flags.DEFINE_integer('saver_eval_time', 2,
+tf.flags.DEFINE_integer('saver_eval_time', 1,
                         'Frequency at which results are saved.')
 
 # Require flags
@@ -105,138 +105,153 @@ FLAGS = tf.flags.FLAGS
 
 
 def train():
-  """Training loop."""
 
-  tf.reset_default_graph()
+    """Training loop."""
 
-  # Create the motion models for training and evaluation
-  data_reader = dataset_reader.DataReader(
-      FLAGS.task_dataset_info, root=FLAGS.task_root, num_threads=4)
-  train_traj = data_reader.read(batch_size=FLAGS.training_minibatch_size)
+    tf.reset_default_graph()
 
-  # Create the ensembles that provide targets during training
-  place_cell_ensembles = utils.get_place_cell_ensembles(
-      env_size=FLAGS.task_env_size,
-      neurons_seed=FLAGS.task_neurons_seed,
-      targets_type=FLAGS.task_targets_type,
-      lstm_init_type=FLAGS.task_lstm_init_type,
-      n_pc=FLAGS.task_n_pc,
-      pc_scale=FLAGS.task_pc_scale)
+    # Create the motion models for training and evaluation
+    data_reader = dataset_reader.DataReader(
+        FLAGS.task_dataset_info, root=FLAGS.task_root, num_threads=4)
+    train_traj = data_reader.read(batch_size=FLAGS.training_minibatch_size)
 
-  head_direction_ensembles = utils.get_head_direction_ensembles(
-      neurons_seed=FLAGS.task_neurons_seed,
-      targets_type=FLAGS.task_targets_type,
-      lstm_init_type=FLAGS.task_lstm_init_type,
-      n_hdc=FLAGS.task_n_hdc,
-      hdc_concentration=FLAGS.task_hdc_concentration)
-  target_ensembles = place_cell_ensembles + head_direction_ensembles
+    # Create the ensembles that provide targets during training
+    place_cell_ensembles = utils.get_place_cell_ensembles(
+        env_size=FLAGS.task_env_size,
+        neurons_seed=FLAGS.task_neurons_seed,
+        targets_type=FLAGS.task_targets_type,
+        lstm_init_type=FLAGS.task_lstm_init_type,
+        n_pc=FLAGS.task_n_pc,
+        pc_scale=FLAGS.task_pc_scale)
 
-  # Model creation
-  rnn_core = model.GridCellsRNNCell(
-      target_ensembles=target_ensembles,
-      nh_lstm=FLAGS.model_nh_lstm,
-      nh_bottleneck=FLAGS.model_nh_bottleneck,
-      dropoutrates_bottleneck=np.array(FLAGS.model_dropout_rates),
-      bottleneck_weight_decay=FLAGS.model_weight_decay,
-      bottleneck_has_bias=FLAGS.model_bottleneck_has_bias,
-      init_weight_disp=FLAGS.model_init_weight_disp)
-  rnn = model.GridCellsRNN(rnn_core, FLAGS.model_nh_lstm)
+    head_direction_ensembles = utils.get_head_direction_ensembles(
+        neurons_seed=FLAGS.task_neurons_seed,
+        targets_type=FLAGS.task_targets_type,
+        lstm_init_type=FLAGS.task_lstm_init_type,
+        n_hdc=FLAGS.task_n_hdc,
+        hdc_concentration=FLAGS.task_hdc_concentration)
+    target_ensembles = place_cell_ensembles + head_direction_ensembles
 
-  # Get a trajectory batch
-  input_tensors = []
-  init_pos, init_hd, ego_vel, target_pos, target_hd = train_traj
-  if FLAGS.task_velocity_inputs:
-    # Add the required amount of noise to the velocities
-    vel_noise = tf.distributions.Normal(0.0, 1.0).sample(
-        sample_shape=ego_vel.get_shape()) * FLAGS.task_velocity_noise
-    input_tensors = [ego_vel + vel_noise] + input_tensors
-  # Concatenate all inputs
-  inputs = tf.concat(input_tensors, axis=2)
+    # Model creation
+    rnn_core = model.GridCellsRNNCell(
+        target_ensembles=target_ensembles,
+        nh_lstm=FLAGS.model_nh_lstm,
+        nh_bottleneck=FLAGS.model_nh_bottleneck,
+        dropoutrates_bottleneck=np.array(FLAGS.model_dropout_rates),
+        bottleneck_weight_decay=FLAGS.model_weight_decay,
+        bottleneck_has_bias=FLAGS.model_bottleneck_has_bias,
+        init_weight_disp=FLAGS.model_init_weight_disp)
+    rnn = model.GridCellsRNN(rnn_core, FLAGS.model_nh_lstm)
 
-  # Replace euclidean positions and angles by encoding of place and hd ensembles
-  # Note that the initial_conds will be zeros if the ensembles were configured
-  # to provide that type of initialization
-  initial_conds = utils.encode_initial_conditions(
-      init_pos, init_hd, place_cell_ensembles, head_direction_ensembles)
+    # Get a trajectory batch
+    input_tensors = []
+    init_pos, init_hd, ego_vel, target_pos, target_hd = train_traj
+    if FLAGS.task_velocity_inputs:
+        # Add the required amount of noise to the velocities
+        vel_noise = tf.distributions.Normal(0.0, 1.0).sample(
+            sample_shape=ego_vel.get_shape()) * FLAGS.task_velocity_noise
+        input_tensors = [ego_vel + vel_noise] + input_tensors
+    # Concatenate all inputs
+    inputs = tf.concat(input_tensors, axis=2)
 
-  # Encode targets as well
-  ensembles_targets = utils.encode_targets(
-      target_pos, target_hd, place_cell_ensembles, head_direction_ensembles)
+    # Replace euclidean positions and angles by encoding of place and hd ensembles
+    # Note that the initial_conds will be zeros if the ensembles were configured
+    # to provide that type of initialization
+    initial_conds = utils.encode_initial_conditions(
+        init_pos, init_hd, place_cell_ensembles, head_direction_ensembles)
 
-  # Estimate future encoding of place and hd ensembles inputing egocentric vels
-  outputs, _ = rnn(initial_conds, inputs, training=True)
-  ensembles_logits, bottleneck, lstm_output = outputs
+    # Encode targets as well
+    ensembles_targets = utils.encode_targets(
+        target_pos, target_hd, place_cell_ensembles, head_direction_ensembles)
 
-  # Training loss
-  pc_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
-      labels=ensembles_targets[0], logits=ensembles_logits[0], name='pc_loss')
-  hd_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
-      labels=ensembles_targets[1], logits=ensembles_logits[1], name='hd_loss')
-  total_loss = pc_loss + hd_loss
-  train_loss = tf.reduce_mean(total_loss, name='train_loss')
+    # Estimate future encoding of place and hd ensembles inputing egocentric vels
+    outputs, _ = rnn(initial_conds, inputs, training=True)
+    ensembles_logits, bottleneck, lstm_output = outputs
 
-  # Optimisation ops
-  optimizer_class = eval(FLAGS.training_optimizer_class)  # pylint: disable=eval-used
-  optimizer = optimizer_class(**eval(FLAGS.training_optimizer_options))  # pylint: disable=eval-used
-  grad = optimizer.compute_gradients(train_loss)
-  clip_gradient = eval(FLAGS.training_clipping_function)  # pylint: disable=eval-used
-  clipped_grad = [
-      clip_gradient(g, var, FLAGS.training_clipping) for g, var in grad
-  ]
-  train_op = optimizer.apply_gradients(clipped_grad)
+    # Training loss
+    pc_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+        labels=ensembles_targets[0], logits=ensembles_logits[0], name='pc_loss')
+    hd_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+        labels=ensembles_targets[1], logits=ensembles_logits[1], name='hd_loss')
+    total_loss = pc_loss + hd_loss
+    train_loss = tf.reduce_mean(total_loss, name='train_loss')
 
-  # Store the grid scores
-  grid_scores = dict()
-  grid_scores['btln_60'] = np.zeros((FLAGS.model_nh_bottleneck,))
-  grid_scores['btln_90'] = np.zeros((FLAGS.model_nh_bottleneck,))
-  grid_scores['btln_60_separation'] = np.zeros((FLAGS.model_nh_bottleneck,))
-  grid_scores['btln_90_separation'] = np.zeros((FLAGS.model_nh_bottleneck,))
-  grid_scores['lstm_60'] = np.zeros((FLAGS.model_nh_lstm,))
-  grid_scores['lstm_90'] = np.zeros((FLAGS.model_nh_lstm,))
+    # Optimisation ops
+    optimizer_class = eval(FLAGS.training_optimizer_class)  # pylint: disable=eval-used
+    optimizer = optimizer_class(**eval(FLAGS.training_optimizer_options))  # pylint: disable=eval-used
+    grad = optimizer.compute_gradients(train_loss)
+    clip_gradient = eval(FLAGS.training_clipping_function)  # pylint: disable=eval-used
+    clipped_grad = [
+        clip_gradient(g, var, FLAGS.training_clipping) for g, var in grad
+    ]
+    train_op = optimizer.apply_gradients(clipped_grad)
 
-  # Create scorer objects
-  starts = [0.2] * 10
-  ends = np.linspace(0.4, 1.0, num=10)
-  masks_parameters = zip(starts, ends.tolist())
-  latest_epoch_scorer = scores.GridScorer(20, data_reader.get_coord_range(),
-                                          masks_parameters)
+    # Store the grid scores
+    grid_scores = dict()
+    grid_scores['btln_60'] = np.zeros((FLAGS.model_nh_bottleneck,))
+    grid_scores['btln_90'] = np.zeros((FLAGS.model_nh_bottleneck,))
+    grid_scores['btln_60_separation'] = np.zeros((FLAGS.model_nh_bottleneck,))
+    grid_scores['btln_90_separation'] = np.zeros((FLAGS.model_nh_bottleneck,))
+    grid_scores['lstm_60'] = np.zeros((FLAGS.model_nh_lstm,))
+    grid_scores['lstm_90'] = np.zeros((FLAGS.model_nh_lstm,))
 
-  with tf.train.SingularMonitoredSession() as sess:
-    for epoch in range(FLAGS.training_epochs):
-      
-      loss_acc = list()
-      for _ in range(FLAGS.training_steps_per_epoch):
-        res = sess.run({'train_op': train_op, 'total_loss': train_loss})
-        loss_acc.append(res['total_loss'])
+    # Create scorer objects
+    starts = [0.2] * 10
+    ends = np.linspace(0.4, 1.0, num=10)
+    masks_parameters = zip(starts, ends.tolist())
+    latest_epoch_scorer = scores.GridScorer(20, data_reader.get_coord_range(),
+                                            masks_parameters)
 
-      tf.logging.info('Epoch %i, mean loss %.5f, std loss %.5f', epoch,
-                      np.mean(loss_acc), np.std(loss_acc))
-      if epoch % FLAGS.saver_eval_time == 0:
-        res = dict()
-        for _ in xrange(FLAGS.training_evaluation_minibatch_size //
-                        FLAGS.training_minibatch_size):
-          mb_res = sess.run({
-              'bottleneck': bottleneck,
-              'lstm': lstm_output,
-              'pos_xy': target_pos
-          })
-          res = utils.concat_dict(res, mb_res)
+    with tf.train.SingularMonitoredSession() as sess:
 
-        # Store at the end of validation
-        filename = 'rates_and_sac_latest_hd.pdf'
-        grid_scores['btln_60'], grid_scores['btln_90'], grid_scores[
-            'btln_60_separation'], grid_scores[
-                'btln_90_separation'] = utils.get_scores_and_plot(
-                    latest_epoch_scorer, res['pos_xy'], res['bottleneck'],
-                    FLAGS.saver_results_directory, filename)
-        
-        np.save( FLAGS.saver_results_directory + 'res_' + str( epoch ) + '.npy', res )
-        np.save( FLAGS.saver_results_directory + 'scores_' + str( epoch ) + '.npy', grid_scores )
+        log_info = {
+            'epoch': [],
+            'train_op': [],
+            'total_loss': [],
+        }
+
+        for epoch in range(FLAGS.training_epochs):
+
+            loss_acc = list()
+            for _ in range(FLAGS.training_steps_per_epoch):
+                res = sess.run({'train_op': train_op, 'total_loss': train_loss})
+                loss_acc.append(res['total_loss'])
+
+            tf.logging.info('Epoch %i, mean loss %.5f, std loss %.5f', epoch,
+                            np.mean(loss_acc), np.std(loss_acc))
+            
+            log_info['epoch'].append( epoch )
+            log_info['train_op'].append( np.mean(loss_acc) )
+            log_info['total_loss'].append( np.std(loss_acc) )
+
+            if epoch % FLAGS.saver_eval_time == 0:
+                res = dict()
+                for _ in range(FLAGS.training_evaluation_minibatch_size //
+                               FLAGS.training_minibatch_size):
+                    mb_res = sess.run({
+                        'bottleneck': bottleneck,
+                        'lstm': lstm_output,
+                        'pos_xy': target_pos
+                    })
+                    res = utils.concat_dict(res, mb_res)
+
+                # Store at the end of validation
+                filename = 'rates_and_sac_latest_hd.pdf'
+                grid_scores['btln_60'], grid_scores['btln_90'], grid_scores[
+                    'btln_60_separation'], grid_scores[
+                        'btln_90_separation'] = utils.get_scores_and_plot(
+                            latest_epoch_scorer, res['pos_xy'], res['bottleneck'],
+                            FLAGS.saver_results_directory, filename)
+
+                np.save(FLAGS.saver_results_directory + 'res_' + str(epoch) + '.npy', res)
+                np.save(FLAGS.saver_results_directory + 'scores_' + str(epoch) + '.npy', grid_scores)
+                np.save(FLAGS.saver_results_directory + 'log_info_' + str(epoch) + '.npy', log_info)
 
 
 def main(unused_argv):
-  tf.logging.set_verbosity(3)  # Print INFO log messages.
-  train()
+
+    tf.logging.set_verbosity(3)  # Print INFO log messages.
+    train()
 
 if __name__ == '__main__':
-  tf.app.run()
+    tf.app.run()
